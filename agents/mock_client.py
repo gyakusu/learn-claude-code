@@ -363,6 +363,174 @@ def _s06_response(messages: list, cursor: int) -> tuple[MockResponse, int]:
 
 
 # ---------------------------------------------------------------------------
+# s07 task-system scenario helpers
+# ---------------------------------------------------------------------------
+
+_s07_step: dict[str, int] = {}
+
+
+def _s07_user_text(messages: list) -> str:
+    """Extract the original user query (first plain-text user message)."""
+    for m in messages:
+        if m.get("role") == "user" and isinstance(m.get("content"), str):
+            return m["content"]
+    return ""
+
+
+def _s07_tool_result_count(messages: list) -> int:
+    """Count how many tool_result round-trips have occurred."""
+    return sum(
+        1 for m in messages
+        if isinstance(m.get("content"), list)
+        and any(isinstance(b, dict) and b.get("type") == "tool_result"
+                for b in m["content"])
+    )
+
+
+def _s07_response(messages: list) -> MockResponse:
+    """Scripted responses for s07 task_create/update/list/get tools."""
+    user_text = _s07_user_text(messages)
+    q = user_text.lower()
+    last = messages[-1]
+    is_tool_result = (
+        isinstance(last.get("content"), list)
+        and any(isinstance(b, dict) and b.get("type") == "tool_result"
+                for b in last["content"])
+    )
+
+    round_count = _s07_tool_result_count(messages)
+
+    # --- "create 3 tasks" with dependency wiring ---
+    if re.search(r"create\s+\d+\s+task", q):
+        subjects = re.findall(r'"([^"]+)"', user_text)
+        if not subjects:
+            subjects = ["Task 1", "Task 2", "Task 3"]
+        n = len(subjects)
+
+        if not is_tool_result:
+            # Step 1: create first task
+            return MockResponse(
+                content=[
+                    TextBlock(text="I'll create the tasks and set up dependencies."),
+                    ToolUseBlock(id=_next_tool_id(), name="task_create",
+                                input={"subject": subjects[0]}),
+                ], stop_reason="tool_use")
+
+        # Steps 2..n: create remaining tasks
+        if round_count <= n - 1:
+            idx = round_count
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_create",
+                                     input={"subject": subjects[idx]})],
+                stop_reason="tool_use")
+
+        # Steps n+1..2n-1: wire dependencies (task i+1 blocked by task i)
+        dep_round = round_count - n
+        if dep_round < n - 1:
+            task_id = dep_round + 2  # tasks 2, 3, ...
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_update",
+                                     input={"task_id": task_id,
+                                            "addBlockedBy": [task_id - 1]})],
+                stop_reason="tool_use")
+
+        # Final: list all tasks
+        if dep_round == n - 1:
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_list",
+                                     input={})],
+                stop_reason="tool_use")
+
+        # Done
+        results = [b.get("content", "") for b in last["content"]
+                   if isinstance(b, dict) and b.get("type") == "tool_result"]
+        return MockResponse(
+            content=[TextBlock(text=f"Done.\n\n{results[0][:500]}" if results else "Done.")],
+            stop_reason="end_turn")
+
+    # --- "task board" with parallel deps ---
+    if re.search(r"task.*board|parse.*transform.*emit", q):
+        board = ["Parse", "Transform", "Emit", "Test"]
+
+        if not is_tool_result:
+            return MockResponse(
+                content=[
+                    TextBlock(text="I'll create a task board with the dependency structure."),
+                    ToolUseBlock(id=_next_tool_id(), name="task_create",
+                                input={"subject": board[0]}),
+                ], stop_reason="tool_use")
+
+        if round_count <= 3:
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_create",
+                                     input={"subject": board[round_count]})],
+                stop_reason="tool_use")
+
+        # Wire: Transform(2) <- Parse(1), Emit(3) <- Parse(1), Test(4) <- [2,3]
+        dep_steps = [
+            {"task_id": 2, "addBlockedBy": [1]},
+            {"task_id": 3, "addBlockedBy": [1]},
+            {"task_id": 4, "addBlockedBy": [2, 3]},
+        ]
+        dep_idx = round_count - 4
+        if dep_idx < len(dep_steps):
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_update",
+                                     input=dep_steps[dep_idx])],
+                stop_reason="tool_use")
+
+        if dep_idx == len(dep_steps):
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_list",
+                                     input={})],
+                stop_reason="tool_use")
+
+        results = [b.get("content", "") for b in last["content"]
+                   if isinstance(b, dict) and b.get("type") == "tool_result"]
+        return MockResponse(
+            content=[TextBlock(text=f"Done.\n\n{results[0][:500]}" if results else "Done.")],
+            stop_reason="end_turn")
+
+    # --- "complete task N" then list ---
+    m = re.search(r"complete\s+task\s+(\d+)", q)
+    if m:
+        tid = int(m.group(1))
+        if not is_tool_result:
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_update",
+                                     input={"task_id": tid, "status": "completed"})],
+                stop_reason="tool_use")
+        if round_count == 1:
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_list",
+                                     input={})],
+                stop_reason="tool_use")
+        results = [b.get("content", "") for b in last["content"]
+                   if isinstance(b, dict) and b.get("type") == "tool_result"]
+        return MockResponse(
+            content=[TextBlock(text=f"Task {tid} completed.\n\n{results[0][:500]}" if results else "Done.")],
+            stop_reason="end_turn")
+
+    # --- "list tasks" ---
+    if re.search(r"list.*task|show.*task|task.*graph|dependency", q):
+        if not is_tool_result:
+            return MockResponse(
+                content=[ToolUseBlock(id=_next_tool_id(), name="task_list",
+                                     input={})],
+                stop_reason="tool_use")
+        results = [b.get("content", "") for b in last["content"]
+                   if isinstance(b, dict) and b.get("type") == "tool_result"]
+        return MockResponse(
+            content=[TextBlock(text=f"Here are the current tasks:\n\n{results[0][:500]}" if results else "No tasks.")],
+            stop_reason="end_turn")
+
+    # --- fallback ---
+    return MockResponse(
+        content=[TextBlock(text=f"(mock) I would handle: {user_text[:120]}")],
+        stop_reason="end_turn")
+
+
+# ---------------------------------------------------------------------------
 # Drop-in replacement for anthropic.Anthropic
 # ---------------------------------------------------------------------------
 
@@ -379,6 +547,10 @@ class _Messages:
         if "compact" in tool_names:
             resp, self._s06_cursor = _s06_response(messages, self._s06_cursor)
             return resp
+
+        # s07: task_create/update/list/get tools present
+        if "task_create" in tool_names:
+            return _s07_response(messages)
 
         # s04+: scenario-based logic for task tool / subagent children
         has_task_tool = "task" in tool_names
