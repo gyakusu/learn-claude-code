@@ -4,16 +4,21 @@ mock_client.py - Offline mock for the Anthropic Messages API.
 Usage:
     MOCK=1 python agents/s01_agent_loop.py
     MOCK=1 python agents/s04_subagent.py
+    MOCK=1 python agents/s06_context_compact.py
 
 Simulates tool_use / end_turn responses so learners can run tutorials
 without an API key or network access.
 
 For s04 (subagents), uses scenario-based responses that distinguish
 parent (has task tool) from child (no task tool) calls.
+
+For s06 (context compact), uses a scripted sequence of read_file calls
+to grow context and trigger the three-layer compression pipeline.
 """
 
 import re
 import dataclasses
+import uuid
 from typing import Any
 
 
@@ -272,25 +277,121 @@ def _scenario_response(messages: list, tools: list) -> MockResponse:
 
 
 # ---------------------------------------------------------------------------
+# s06 context-compact scenario helpers
+# ---------------------------------------------------------------------------
+
+def _s06_tool(name: str, inp: dict) -> dict:
+    """Shorthand for a tool_use step in s06 scenario."""
+    return {"kind": "tool_use", "name": name, "input": inp}
+
+
+def _s06_text(msg: str) -> dict:
+    """Shorthand for a text step in s06 scenario."""
+    return {"kind": "text", "text": msg}
+
+
+def _s06_text_and_tool(msg: str, name: str, inp: dict) -> dict:
+    """Text + tool_use in a single response (like a real model does)."""
+    return {"kind": "text_and_tool", "text": msg, "name": name, "input": inp}
+
+
+_S06_STEPS: list[dict] = [
+    _s06_text_and_tool("Sure! I'll read every Python file in agents/ one by one.",
+                       "read_file", {"path": "agents/s01_agent_loop.py"}),
+    _s06_tool("read_file", {"path": "agents/s02_tool_use.py"}),
+    _s06_tool("read_file", {"path": "agents/s03_todo_write.py"}),
+    _s06_tool("read_file", {"path": "agents/s04_subagent.py"}),
+    _s06_tool("read_file", {"path": "agents/s05_skill_loading.py"}),
+    _s06_tool("read_file", {"path": "agents/s06_context_compact.py"}),
+    _s06_tool("read_file", {"path": "agents/s07_task_system.py"}),
+    _s06_tool("read_file", {"path": "agents/s08_background_tasks.py"}),
+    _s06_tool("read_file", {"path": "agents/s09_agent_teams.py"}),
+    _s06_text(
+        "I've finished reading all 9 Python files in agents/. "
+        "The context grew quite large — you may have seen micro_compact "
+        "replacing old tool results with placeholders, and possibly an "
+        "auto_compact summarisation if the token threshold was exceeded."
+    ),
+    _s06_tool("bash", {"command": "wc -l agents/*.py"}),
+    _s06_text("All agents total about 1800 lines of Python."),
+]
+_S06_CYCLE_FROM = 10  # cycle back to bash + text pair
+
+
+def _s06_response(messages: list, cursor: int) -> tuple[MockResponse, int]:
+    """Return the next scripted s06 response and updated cursor."""
+    # Special case: summarisation request from auto_compact
+    if (len(messages) == 1
+            and isinstance(messages[0].get("content"), str)
+            and "Summarize this conversation" in messages[0]["content"]):
+        return MockResponse(
+            content=[TextBlock(text=(
+                "Summary: The agent read multiple Python files from agents/. "
+                "Key observations: each file implements one stage of a coding-agent "
+                "tutorial (s01-s09). The agent demonstrated tool use (bash, "
+                "read_file, write_file, edit_file) and context compression. "
+                "Current state: all files have been read successfully."
+            ))],
+            stop_reason="end_turn",
+        ), cursor
+
+    step = _S06_STEPS[cursor]
+    next_cursor = cursor + 1
+    if next_cursor >= len(_S06_STEPS):
+        next_cursor = _S06_CYCLE_FROM
+
+    if step["kind"] == "tool_use":
+        block = ToolUseBlock(
+            id=f"toolu_{uuid.uuid4().hex[:24]}",
+            name=step["name"],
+            input=step["input"],
+        )
+        return MockResponse(content=[block], stop_reason="tool_use"), next_cursor
+    elif step["kind"] == "text_and_tool":
+        text_block = TextBlock(text=step["text"])
+        tool_block = ToolUseBlock(
+            id=f"toolu_{uuid.uuid4().hex[:24]}",
+            name=step["name"],
+            input=step["input"],
+        )
+        return MockResponse(
+            content=[text_block, tool_block], stop_reason="tool_use",
+        ), next_cursor
+    else:
+        block = TextBlock(text=step["text"])
+        return MockResponse(content=[block], stop_reason="end_turn"), next_cursor
+
+
+# ---------------------------------------------------------------------------
 # Drop-in replacement for anthropic.Anthropic
 # ---------------------------------------------------------------------------
 
 class _Messages:
+    def __init__(self) -> None:
+        self._s06_cursor: int = 0
+
     def create(self, *, model: str, system: Any = None,
                messages: list, tools: list = None,
                max_tokens: int = 8000, **kwargs) -> MockResponse:
-        # Use scenario-based logic when a "task" tool is present (s04+)
-        has_task_tool = any(t.get("name") == "task" for t in (tools or []))
-        # Also use scenarios for child calls (no task tool but tools include
-        # read_file/write_file, and we're inside a subagent context)
+        tool_names = {t.get("name") for t in (tools or [])}
+
+        # s06: compact tool present → use scripted sequence
+        if "compact" in tool_names:
+            resp, self._s06_cursor = _s06_response(messages, self._s06_cursor)
+            return resp
+
+        # s04+: scenario-based logic for task tool / subagent children
+        has_task_tool = "task" in tool_names
         is_subagent_child = (
             not has_task_tool
             and tools
-            and any(t.get("name") == "read_file" for t in tools)
+            and "read_file" in tool_names
             and len(messages) == 1  # fresh context = subagent
         )
         if has_task_tool or is_subagent_child:
             return _scenario_response(messages, tools or [])
+
+        # s01, s02, s03: generic pattern-based responses
         return _infer_response(messages, tools or [])
 
 
@@ -299,3 +400,7 @@ class MockAnthropic:
 
     def __init__(self, **kwargs):
         self.messages = _Messages()
+
+
+# Alias so s06 import works too
+MockAnthropicClient = MockAnthropic
