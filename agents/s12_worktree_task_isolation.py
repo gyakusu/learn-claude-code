@@ -37,17 +37,23 @@ import subprocess
 import time
 from pathlib import Path
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+USE_MOCK = os.getenv("USE_MOCK", "").strip().lower() in ("1", "true", "yes")
+
+if USE_MOCK:
+    from agents.mock_s12 import MockAnthropic as Anthropic
+else:
+    from anthropic import Anthropic
 
 if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL")) if not USE_MOCK else Anthropic()
+MODEL = os.environ.get("MODEL_ID", "mock-model")
 
 
 def detect_repo_root(cwd: Path) -> Path | None:
