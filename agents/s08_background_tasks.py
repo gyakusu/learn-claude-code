@@ -31,7 +31,6 @@ import threading
 import uuid
 from pathlib import Path
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -40,8 +39,22 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+
+# Use mock client when MOCK=1 or no API key is configured
+_use_mock = os.getenv("MOCK") == "1" or (
+    not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("ANTHROPIC_BASE_URL")
+)
+if _use_mock:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from mocks.mock_anthropic import MockAnthropic
+    client = MockAnthropic()
+    MODEL = os.environ.get("MODEL_ID", "mock-model")
+    print("\033[33m[mock mode] API key not found or MOCK=1 — using mock client\033[0m")
+else:
+    from anthropic import Anthropic
+    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+    MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use background_run for long-running commands."
 
