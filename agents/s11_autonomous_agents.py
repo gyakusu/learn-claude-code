@@ -38,6 +38,7 @@ Key insight: "The agent finds work itself."
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -47,6 +48,17 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+# --mock flag: start an in-process mock server for offline use
+if "--mock" in sys.argv:
+    sys.argv.remove("--mock")
+    from mock_server import start_background, PORT as MOCK_PORT
+    start_background(MOCK_PORT)
+    os.environ["ANTHROPIC_BASE_URL"] = f"http://localhost:{MOCK_PORT}"
+    os.environ.setdefault("MODEL_ID", "mock-offline")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "mock-key")
+    print(f"[mock] Offline mock server started on port {MOCK_PORT}")
+
 if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
