@@ -49,8 +49,13 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+if os.getenv("MOCK"):
+    import sys; sys.path.insert(0, str(Path(__file__).parent))  # noqa: E702
+    from mock_client import MockAnthropicClient
+    client = MockAnthropicClient()
+else:
+    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+MODEL = os.getenv("MODEL_ID", "mock-model")
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks."
 
