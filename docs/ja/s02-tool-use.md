@@ -97,3 +97,21 @@ python agents/s02_tool_use.py
 2. `Create a file called greet.py with a greet(name) function`
 3. `Edit greet.py to add a docstring to the function`
 4. `Read greet.py to verify the edit worked`
+
+### オフラインで試す（APIキー不要）
+
+モックAPIサーバーを使えば、APIキーなしでチュートリアルを体験できる。
+
+```sh
+# ワンコマンドで起動
+bash tests/run_s02_offline.sh
+
+# または手動で:
+python tests/mock_api.py &                              # モックサーバー起動
+ANTHROPIC_BASE_URL=http://localhost:5123 \
+ANTHROPIC_API_KEY=mock-key \
+MODEL_ID=mock \
+python agents/s02_tool_use.py                            # エージェント起動
+```
+
+モックは上記4つのデモプロンプトに対応している。ツールの実行（ファイル読み書き・編集）は実際に行われるため、ディスパッチマップとサンドボックスの動作を確認できる。
