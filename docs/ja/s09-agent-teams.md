@@ -120,6 +120,19 @@ cd learn-claude-code
 python agents/s09_agent_teams.py
 ```
 
+### オフラインで試す（モックサーバー）
+
+APIキーなしで動作確認できるモックサーバーを同梱している。
+
+```sh
+# ターミナル1: モックサーバーを起動
+python tests/mock_server.py
+
+# ターミナル2: モックに接続してs09を実行
+ANTHROPIC_BASE_URL=http://127.0.0.1:9800 MODEL_ID=mock-model \
+    python agents/s09_agent_teams.py
+```
+
 1. `Spawn alice (coder) and bob (tester). Have alice send bob a message.`
 2. `Broadcast "status update: phase 1 complete" to all teammates`
 3. `Check the lead inbox for any messages`
