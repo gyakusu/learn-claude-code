@@ -40,23 +40,11 @@ import re
 import subprocess
 from pathlib import Path
 
-from anthropic import Anthropic
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-OFFLINE = os.getenv("OFFLINE", "").strip().lower() in ("1", "true", "yes")
-
-if OFFLINE:
-    from mock_s05 import MockClient
-    client = MockClient()
-    MODEL = "mock"
-else:
-    if os.getenv("ANTHROPIC_BASE_URL"):
-        os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
-    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-    MODEL = os.environ["MODEL_ID"]
+client = MockAnthropic()
+MODEL = "mock"
 SKILLS_DIR = WORKDIR / "skills"
 
 

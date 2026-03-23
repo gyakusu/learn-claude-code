@@ -31,30 +31,11 @@ import threading
 import uuid
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-
-# Use mock client when MOCK=1 or no API key is configured
-_use_mock = os.getenv("MOCK") == "1" or (
-    not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("ANTHROPIC_BASE_URL")
-)
-if _use_mock:
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from mocks.mock_anthropic import MockAnthropic
-    client = MockAnthropic()
-    MODEL = os.environ.get("MODEL_ID", "mock-model")
-    print("\033[33m[mock mode] API key not found or MOCK=1 — using mock client\033[0m")
-else:
-    from anthropic import Anthropic
-    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-    MODEL = os.environ["MODEL_ID"]
+client = MockAnthropic()
+MODEL = "mock"
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use background_run for long-running commands."
 
@@ -164,10 +145,10 @@ def run_write(path: str, content: str) -> str:
 def run_edit(path: str, old_text: str, new_text: str) -> str:
     try:
         fp = safe_path(path)
-        c = fp.read_text()
-        if old_text not in c:
+        content = fp.read_text()
+        if old_text not in content:
             return f"Error: Text not found in {path}"
-        fp.write_text(c.replace(old_text, new_text, 1))
+        fp.write_text(content.replace(old_text, new_text, 1))
         return f"Edited {path}"
     except Exception as e:
         return f"Error: {e}"

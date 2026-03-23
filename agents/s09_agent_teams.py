@@ -50,17 +50,11 @@ import threading
 import time
 from pathlib import Path
 
-from anthropic import Anthropic
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
-    os.environ.setdefault("ANTHROPIC_API_KEY", "mock")
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+client = MockAnthropic()
+MODEL = "mock"
 TEAM_DIR = WORKDIR / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
 
@@ -207,13 +201,13 @@ class TeammateManager:
     def _exec(self, sender: str, tool_name: str, args: dict) -> str:
         # these base tools are unchanged from s02
         if tool_name == "bash":
-            return _run_bash(args["command"])
+            return run_bash(args["command"])
         if tool_name == "read_file":
-            return _run_read(args["path"])
+            return run_read(args["path"])
         if tool_name == "write_file":
-            return _run_write(args["path"], args["content"])
+            return run_write(args["path"], args["content"])
         if tool_name == "edit_file":
-            return _run_edit(args["path"], args["old_text"], args["new_text"])
+            return run_edit(args["path"], args["old_text"], args["new_text"])
         if tool_name == "send_message":
             return BUS.send(sender, args["to"], args["content"], args.get("msg_type", "message"))
         if tool_name == "read_inbox":
@@ -253,15 +247,15 @@ TEAM = TeammateManager(TEAM_DIR)
 
 
 # -- Base tool implementations (these base tools are unchanged from s02) --
-def _safe_path(p: str) -> Path:
+def safe_path(p: str) -> Path:
     path = (WORKDIR / p).resolve()
     if not path.is_relative_to(WORKDIR):
         raise ValueError(f"Path escapes workspace: {p}")
     return path
 
 
-def _run_bash(command: str) -> str:
-    dangerous = ["rm -rf /", "sudo", "shutdown", "reboot"]
+def run_bash(command: str) -> str:
+    dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in command for d in dangerous):
         return "Error: Dangerous command blocked"
     try:
@@ -275,9 +269,9 @@ def _run_bash(command: str) -> str:
         return "Error: Timeout (120s)"
 
 
-def _run_read(path: str, limit: int = None) -> str:
+def run_read(path: str, limit: int = None) -> str:
     try:
-        lines = _safe_path(path).read_text().splitlines()
+        lines = safe_path(path).read_text().splitlines()
         if limit and limit < len(lines):
             lines = lines[:limit] + [f"... ({len(lines) - limit} more)"]
         return "\n".join(lines)[:50000]
@@ -285,9 +279,9 @@ def _run_read(path: str, limit: int = None) -> str:
         return f"Error: {e}"
 
 
-def _run_write(path: str, content: str) -> str:
+def run_write(path: str, content: str) -> str:
     try:
-        fp = _safe_path(path)
+        fp = safe_path(path)
         fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(content)
         return f"Wrote {len(content)} bytes"
@@ -295,13 +289,13 @@ def _run_write(path: str, content: str) -> str:
         return f"Error: {e}"
 
 
-def _run_edit(path: str, old_text: str, new_text: str) -> str:
+def run_edit(path: str, old_text: str, new_text: str) -> str:
     try:
-        fp = _safe_path(path)
-        c = fp.read_text()
-        if old_text not in c:
+        fp = safe_path(path)
+        content = fp.read_text()
+        if old_text not in content:
             return f"Error: Text not found in {path}"
-        fp.write_text(c.replace(old_text, new_text, 1))
+        fp.write_text(content.replace(old_text, new_text, 1))
         return f"Edited {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -309,10 +303,10 @@ def _run_edit(path: str, old_text: str, new_text: str) -> str:
 
 # -- Lead tool dispatch (9 tools) --
 TOOL_HANDLERS = {
-    "bash":            lambda **kw: _run_bash(kw["command"]),
-    "read_file":       lambda **kw: _run_read(kw["path"], kw.get("limit")),
-    "write_file":      lambda **kw: _run_write(kw["path"], kw["content"]),
-    "edit_file":       lambda **kw: _run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+    "bash":            lambda **kw: run_bash(kw["command"]),
+    "read_file":       lambda **kw: run_read(kw["path"], kw.get("limit")),
+    "write_file":      lambda **kw: run_write(kw["path"], kw["content"]),
+    "edit_file":       lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
     "spawn_teammate":  lambda **kw: TEAM.spawn(kw["name"], kw["role"], kw["prompt"]),
     "list_teammates":  lambda **kw: TEAM.list_all(),
     "send_message":    lambda **kw: BUS.send("lead", kw["to"], kw["content"], kw.get("msg_type", "message")),

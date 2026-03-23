@@ -40,22 +40,11 @@ import subprocess
 import time
 from pathlib import Path
 
-from anthropic import Anthropic
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-if os.getenv("MOCK"):
-    import sys; sys.path.insert(0, str(Path(__file__).parent))  # noqa: E702
-    from mock_client import MockAnthropicClient
-    client = MockAnthropicClient()
-else:
-    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.getenv("MODEL_ID", "mock-model")
+client = MockAnthropic()
+MODEL = "mock"
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks."
 
