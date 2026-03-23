@@ -37,23 +37,11 @@ import subprocess
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-
-USE_MOCK = os.getenv("USE_MOCK", "").strip().lower() in ("1", "true", "yes")
-
-if USE_MOCK:
-    from agents.mock_s12 import MockAnthropic as Anthropic
-else:
-    from anthropic import Anthropic
-
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL")) if not USE_MOCK else Anthropic()
-MODEL = os.environ.get("MODEL_ID", "mock-model")
+client = MockAnthropic()
+MODEL = "mock"
 
 
 def detect_repo_root(cwd: Path) -> Path | None:
@@ -530,10 +518,10 @@ def run_write(path: str, content: str) -> str:
 def run_edit(path: str, old_text: str, new_text: str) -> str:
     try:
         fp = safe_path(path)
-        c = fp.read_text()
-        if old_text not in c:
+        content = fp.read_text()
+        if old_text not in content:
             return f"Error: Text not found in {path}"
-        fp.write_text(c.replace(old_text, new_text, 1))
+        fp.write_text(content.replace(old_text, new_text, 1))
         return f"Edited {path}"
     except Exception as e:
         return f"Error: {e}"

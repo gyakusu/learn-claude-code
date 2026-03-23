@@ -27,21 +27,11 @@ import os
 import subprocess
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-
-if os.getenv("MOCK"):
-    from mock_client import MockAnthropic as Anthropic
-else:
-    from anthropic import Anthropic
-
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL")) if not os.getenv("MOCK") else Anthropic()
-MODEL = os.getenv("MODEL_ID", "mock")
+client = MockAnthropic()
+MODEL = "mock"
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use the task tool to delegate exploration or subtasks."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."

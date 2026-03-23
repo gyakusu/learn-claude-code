@@ -28,29 +28,14 @@ Key insight: "The agent can track its own progress -- and I can see it."
 """
 
 import os
-import sys
 import subprocess
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+from agents.mock_client import MockAnthropic
 
 WORKDIR = Path.cwd()
-
-if os.getenv("MOCK"):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from tests.mock_client import MockAnthropic
-    client = MockAnthropic()
-    MODEL = os.environ.get("MODEL_ID", "mock")
-    print("[mock mode – no API key needed]")
-else:
-    from anthropic import Anthropic
-    client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-    MODEL = os.environ["MODEL_ID"]
+client = MockAnthropic()
+MODEL = "mock"
 
 SYSTEM = f"""You are a coding agent at {WORKDIR}.
 Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done.
